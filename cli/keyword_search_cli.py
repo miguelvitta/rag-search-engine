@@ -23,9 +23,13 @@ def main() -> None:
             print("Inverted index built successfully.")
         case "search":
             print("Searching for:", args.query)
-            results = search_command(args.query)
-            for i, res in enumerate(results, 1):
-                print(f"{i}. ({res['id']}) {res['title']}")
+            try:
+                results = search_command(args.query)
+                for i, res in enumerate(results, 1):
+                    print(f"{i}. ({res['id']}) {res['title']}")
+            except FileNotFoundError:
+                print("File not found")
+
         case _:
             parser.print_help()
 
