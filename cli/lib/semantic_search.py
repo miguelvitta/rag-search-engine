@@ -129,7 +129,7 @@ def embed_query_text(query):
     search_instance = SemanticSearch()
     embedding = search_instance.generate_embedding(query)
     print(f"Query: {query}")
-    print(f"First 5 dimensions: {embedding[:3]}")
+    print(f"First 3 dimensions: {embedding[:3]}")
     print(f"Shape: {embedding.shape}")
 
 
@@ -207,14 +207,18 @@ def semantic_chunk(
 
         cleaned_sentences = []
         for chunk_sentence in chunk_sentences:
-            cleaned_sentences.append(chunk_sentence.strip())
+            chunk_sentence = chunk_sentence.strip()
+            if chunk_sentence:
+                cleaned_sentences.append(chunk_sentence)
         if not cleaned_sentences:
+            i += max_chunk_size - overlap
             continue
         chunk = " ".join(cleaned_sentences)
         chunks.append(chunk)
         i += max_chunk_size - overlap
 
     return chunks
+
 
 def semantic_chunk_text(
     text: str,
@@ -235,6 +239,7 @@ class ChunkedSemanticSearch(SemanticSearch):
 
     def build_chunk_embeddings(self, documents: list[dict]) -> np.ndarray:
         self.documents = documents
+
         self.document_map = {}
         for doc in documents:
             self.document_map[doc["id"]] = doc
@@ -301,7 +306,7 @@ class ChunkedSemanticSearch(SemanticSearch):
             similarity = cosine_similarity(query_embedding, chunk_embedding)
             chunk_scores.append(
                 {
-                    "chunk_idx": i,
+                    "chunk_idx": self.chunk_metadata[i]["chunk_idx"],
                     "movie_idx": self.chunk_metadata[i]["movie_idx"],
                     "score": similarity,
                 }

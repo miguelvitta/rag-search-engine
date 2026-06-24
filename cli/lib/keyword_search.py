@@ -11,22 +11,24 @@ from .search_utils import (
     BM25_K1,
     CACHE_DIR,
     DEFAULT_SEARCH_LIMIT,
+    Movie,
+    SearchResult,
+    STOPWORDS_PATH,
     format_search_result,
     load_movies,
-    load_stopwords,
 )
 
 
 class InvertedIndex:
     def __init__(self) -> None:
-        self.index = defaultdict(set)
-        self.docmap: dict[int, dict] = {}
+        self.index: defaultdict[str, set[int]] = defaultdict(set)
+        self.docmap: dict[int, Movie] = {}
         self.index_path = os.path.join(CACHE_DIR, "index.pkl")
         self.docmap_path = os.path.join(CACHE_DIR, "docmap.pkl")
         self.tf_path = os.path.join(CACHE_DIR, "term_frequencies.pkl")
         self.doc_lengths_path = os.path.join(CACHE_DIR, "doc_lengths.pkl")
-        self.term_frequencies = defaultdict(Counter)
-        self.doc_lengths = {}
+        self.term_frequencies: defaultdict[int, Counter[str]] = defaultdict(Counter)
+        self.doc_lengths: dict[int, int] = {}
 
     def build(self) -> None:
         movies = load_movies()
@@ -69,28 +71,16 @@ class InvertedIndex:
         self.doc_lengths[doc_id] = len(tokens)
 
     def get_tf(self, doc_id: int, term: str) -> int:
-        tokens = tokenize_text(term)
-        if len(tokens) != 1:
-            raise ValueError("term must be a single token")
-        token = tokens[0]
-        return self.term_frequencies[doc_id][token]
+        return self.term_frequencies[doc_id][term]
 
     def get_idf(self, term: str) -> float:
-        tokens = tokenize_text(term)
-        if len(tokens) != 1:
-            raise ValueError("term must be a single token")
-        token = tokens[0]
         doc_count = len(self.docmap)
-        term_doc_count = len(self.index[token])
+        term_doc_count = len(self.index[term])
         return math.log((doc_count + 1) / (term_doc_count + 1))
 
     def get_bm25_idf(self, term: str) -> float:
-        tokens = tokenize_text(term)
-        if len(tokens) != 1:
-            raise ValueError("term must be a single token")
-        token = tokens[0]
         doc_count = len(self.docmap)
-        term_doc_count = len(self.index[token])
+        term_doc_count = len(self.index[term])
         return math.log((doc_count - term_doc_count + 0.5) / (term_doc_count + 0.5) + 1)
 
     def get_bm25_tf(
@@ -123,10 +113,12 @@ class InvertedIndex:
         idf_component = self.get_bm25_idf(term)
         return tf_component * idf_component
 
-    def bm25_search(self, query: str, limit: int = DEFAULT_SEARCH_LIMIT) -> list[dict]:
+    def bm25_search(
+        self, query: str, limit: int = DEFAULT_SEARCH_LIMIT
+    ) -> list[SearchResult]:
         query_tokens = tokenize_text(query)
 
-        scores = {}
+        scores: dict[int, float] = {}
         for doc_id in self.docmap:
             score = 0.0
             for token in query_tokens:
@@ -135,7 +127,7 @@ class InvertedIndex:
 
         sorted_docs = sorted(scores.items(), key=lambda x: x[1], reverse=True)
 
-        results = []
+        results: list[SearchResult] = []
         for doc_id, score in sorted_docs[:limit]:
             doc = self.docmap[doc_id]
             formatted_result = format_search_result(
@@ -155,11 +147,12 @@ def build_command() -> None:
     idx.save()
 
 
-def search_command(query: str, limit: int = DEFAULT_SEARCH_LIMIT) -> list[dict]:
+def search_command(query: str, limit: int = DEFAULT_SEARCH_LIMIT) -> list[Movie]:
     idx = InvertedIndex()
     idx.load()
     query_tokens = tokenize_text(query)
-    seen, results = set(), []
+    seen: set[int] = set()
+    results: list[Movie] = []
     for query_token in query_tokens:
         matching_doc_ids = idx.get_documents(query_token)
         for doc_id in matching_doc_ids:
@@ -180,6 +173,14 @@ def preprocess_text(text: str) -> str:
     return text
 
 
+def load_stopwords() -> list[str]:
+    with open(STOPWORDS_PATH, "r") as f:
+        return [preprocess_text(word) for word in f.read().splitlines()]
+
+
+STOPWORDS: list[str] = load_stopwords()
+
+
 def tokenize_text(text: str) -> list[str]:
     text = preprocess_text(text)
     tokens = text.split()
@@ -187,10 +188,9 @@ def tokenize_text(text: str) -> list[str]:
     for token in tokens:
         if token:
             valid_tokens.append(token)
-    stop_words = load_stopwords()
     filtered_words = []
     for word in valid_tokens:
-        if word not in stop_words:
+        if word not in STOPWORDS:
             filtered_words.append(word)
     stemmer = PorterStemmer()
     stemmed_words = []
@@ -199,10 +199,17 @@ def tokenize_text(text: str) -> list[str]:
     return stemmed_words
 
 
+def tokenize_single_term(term: str) -> str:
+    tokens = tokenize_text(term)
+    if len(tokens) != 1:
+        raise ValueError("term must be a single token")
+    return tokens[0]
+
+
 def tf_command(doc_id: int, term: str) -> int:
     idx = InvertedIndex()
     idx.load()
-    return idx.get_tf(doc_id, term)
+    return idx.get_tf(doc_id, tokenize_single_term(term))
 
 
 def bm25_tf_command(
@@ -210,28 +217,30 @@ def bm25_tf_command(
 ) -> float:
     idx = InvertedIndex()
     idx.load()
-    return idx.get_bm25_tf(doc_id, term, k1, b)
+    return idx.get_bm25_tf(doc_id, tokenize_single_term(term), k1, b)
 
 
 def idf_command(term: str) -> float:
     idx = InvertedIndex()
     idx.load()
-    return idx.get_idf(term)
+    return idx.get_idf(tokenize_single_term(term))
 
 
 def bm25_idf_command(term: str) -> float:
     idx = InvertedIndex()
     idx.load()
-    return idx.get_bm25_idf(term)
+    return idx.get_bm25_idf(tokenize_single_term(term))
 
 
 def tfidf_command(doc_id: int, term: str) -> float:
     idx = InvertedIndex()
     idx.load()
-    return idx.get_tf_idf(doc_id, term)
+    return idx.get_tf_idf(doc_id, tokenize_single_term(term))
 
 
-def bm25search_command(query: str, limit: int = DEFAULT_SEARCH_LIMIT) -> list[dict]:
+def bm25search_command(
+    query: str, limit: int = DEFAULT_SEARCH_LIMIT
+) -> list[SearchResult]:
     idx = InvertedIndex()
     idx.load()
     return idx.bm25_search(query, limit)

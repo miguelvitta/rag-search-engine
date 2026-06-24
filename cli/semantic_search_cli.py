@@ -1,5 +1,3 @@
-#!/usr/bin/env python3
-
 import argparse
 
 from lib.semantic_search import (
@@ -31,7 +29,7 @@ def main() -> None:
     )
 
     embed_query_parser = subparsers.add_parser(
-        "embedquery", help="Generate an embedding for a search query"
+        "embed_query", help="Generate an embedding for a search query"
     )
     embed_query_parser.add_argument("query", type=str, help="Query to embed")
 
@@ -95,7 +93,7 @@ def main() -> None:
             embed_text(args.text)
         case "verify_embeddings":
             verify_embeddings()
-        case "embedquery":
+        case "embed_query":
             embed_query_text(args.query)
         case "search":
             semantic_search(args.query, args.limit)
