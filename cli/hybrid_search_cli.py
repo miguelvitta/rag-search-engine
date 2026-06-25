@@ -1,6 +1,10 @@
 import argparse
 
-from lib.hybrid_search import normalize_scores, weighted_search_command, rrf_search_command
+from lib.hybrid_search import (
+    normalize_scores,
+    rrf_search_command,
+    weighted_search_command,
+)
 
 
 def main() -> None:
@@ -29,14 +33,14 @@ def main() -> None:
     )
 
     rrf_parser = subparsers.add_parser(
-        "rrf-search", help="Perform reciprocal rank fusion search"
+        "rrf-search", help="Perform Reciprocal Rank Fusion search"
     )
     rrf_parser.add_argument("query", type=str, help="Search query")
     rrf_parser.add_argument(
-        "--k",
+        "-k",
         type=int,
         default=60,
-        help="How much weight we give to low vs high rank results (20=top heavy, 100=very gradual decline, default=60)",
+        help="RRF k parameter controlling weight distribution (default=60)",
     )
     rrf_parser.add_argument(
         "--limit", type=int, default=5, help="Number of results to return (default=5)"
@@ -72,16 +76,20 @@ def main() -> None:
             result = rrf_search_command(args.query, args.k, args.limit)
 
             print(
-                f"RRF Search Results for '{result['query']}' (k={result['k']}):"
+                f"Reciprocal Rank Fusion Results for '{result['query']}' (k={result['k']}):"
             )
+
             for i, res in enumerate(result["results"], 1):
                 print(f"{i}. {res['title']}")
                 print(f"   RRF Score: {res.get('score', 0):.3f}")
                 metadata = res.get("metadata", {})
-                if "bm25_score" in metadata and "semantic_rank" in metadata:
-                    print(
-                        f"   BM25: {metadata['bm25_score']:.3f}, Semantic: {metadata['semantic_rank']:.3f}"
-                    )
+                ranks = []
+                if metadata.get("bm25_rank"):
+                    ranks.append(f"BM25 Rank: {metadata['bm25_rank']}")
+                if metadata.get("semantic_rank"):
+                    ranks.append(f"Semantic Rank: {metadata['semantic_rank']}")
+                if ranks:
+                    print(f"   {', '.join(ranks)}")
                 print(f"   {res['document'][:100]}...")
                 print()
         case _:

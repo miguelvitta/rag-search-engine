@@ -3,8 +3,8 @@ import os
 from .keyword_search import InvertedIndex
 from .search_utils import (
     DEFAULT_ALPHA,
-    RRF_K,
     DEFAULT_SEARCH_LIMIT,
+    RRF_K,
     format_search_result,
     load_movies,
 )
@@ -37,9 +37,8 @@ class HybridSearch:
         bm25_results = self._bm25_search(query, limit * 500)
         semantic_results = self.semantic_search.search_chunks(query, limit * 500)
 
-        fusion_results = reciprocal_rank_fusion(bm25_results, semantic_results, k)
-
-        return fusion_results[:limit]
+        fused = reciprocal_rank_fusion(bm25_results, semantic_results, k)
+        return fused[:limit]
 
 
 def normalize_scores(scores: list[float]) -> list[float]:
@@ -124,20 +123,25 @@ def combine_search_results(
 
     return sorted(hybrid_results, key=lambda x: x["score"], reverse=True)
 
-def rrf_score(rank: int, k: int = 60) -> float:
+
+def rrf_score(rank: int, k: int = RRF_K) -> float:
     return 1 / (k + rank)
 
-def reciprocal_rank_fusion(bm25_results: list[dict], semantic_results: list[dict], k: int):
+
+def reciprocal_rank_fusion(
+    bm25_results: list[dict], semantic_results: list[dict], k: int = RRF_K
+) -> list[dict]:
     rrf_scores = {}
+
     for rank, result in enumerate(bm25_results, start=1):
         doc_id = result["id"]
         if doc_id not in rrf_scores:
             rrf_scores[doc_id] = {
                 "title": result["title"],
                 "document": result["document"],
+                "rrf_score": 0.0,
                 "bm25_rank": None,
                 "semantic_rank": None,
-                "rrf_score": 0.0,
             }
         if rrf_scores[doc_id]["bm25_rank"] is None:
             rrf_scores[doc_id]["bm25_rank"] = rank
@@ -149,16 +153,32 @@ def reciprocal_rank_fusion(bm25_results: list[dict], semantic_results: list[dict
             rrf_scores[doc_id] = {
                 "title": result["title"],
                 "document": result["document"],
-                "bm25_rank": None,
-                "semantic_rank": rank,
                 "rrf_score": 0.0,
+                "bm25_rank": None,
+                "semantic_rank": None,
             }
         if rrf_scores[doc_id]["semantic_rank"] is None:
             rrf_scores[doc_id]["semantic_rank"] = rank
             rrf_scores[doc_id]["rrf_score"] += rrf_score(rank, k)
 
-    return sorted(rrf_scores.values(), key=lambda x: x["rrf_score"], reverse=True)
+    sorted_items = sorted(
+        rrf_scores.items(), key=lambda x: x[1]["rrf_score"], reverse=True
+    )
 
+    rrf_results = []
+    for doc_id, data in sorted_items:
+        result = format_search_result(
+            doc_id=doc_id,
+            title=data["title"],
+            document=data["document"],
+            score=data["rrf_score"],
+            rrf_score=data["rrf_score"],
+            bm25_rank=data["bm25_rank"],
+            semantic_rank=data["semantic_rank"],
+        )
+        rrf_results.append(result)
+
+    return rrf_results
 
 
 def weighted_search_command(
@@ -181,7 +201,9 @@ def weighted_search_command(
 
 
 def rrf_search_command(
-    query: str, k: int = RRF_K, limit: int = DEFAULT_SEARCH_LIMIT
+    query: str,
+    k: int = RRF_K,
+    limit: int = DEFAULT_SEARCH_LIMIT,
 ) -> dict:
     movies = load_movies()
     searcher = HybridSearch(movies)
