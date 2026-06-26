@@ -5,6 +5,7 @@ from lib.hybrid_search import (
     rrf_search_command,
     weighted_search_command,
 )
+from lib.query_enhancement import correct_spelling
 
 
 def main() -> None:
@@ -45,6 +46,9 @@ def main() -> None:
     rrf_parser.add_argument(
         "--limit", type=int, default=5, help="Number of results to return (default=5)"
     )
+    rrf_parser.add_argument(
+        "--enhance", type=str, choices=["spell"], help="Uses an LLM to check for spelling (choice=spell)"
+    )
 
     args = parser.parse_args()
 
@@ -73,7 +77,12 @@ def main() -> None:
                 print(f"   {res['document'][:100]}...")
                 print()
         case "rrf-search":
-            result = rrf_search_command(args.query, args.k, args.limit)
+            query = args.query
+            if args.enhance and args.enhance == "spell":
+                query = correct_spelling(query)
+                if args.query != query:
+                    print(f"Enhanced query ({args.enhance}): '{args.query}' -> '{query}'\n")
+            result = rrf_search_command(query, args.k, args.limit)
 
             print(
                 f"Reciprocal Rank Fusion Results for '{result['query']}' (k={result['k']}):"
