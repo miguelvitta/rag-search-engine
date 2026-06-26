@@ -5,7 +5,6 @@ from lib.hybrid_search import (
     rrf_search_command,
     weighted_search_command,
 )
-from lib.query_enhancement import correct_spelling
 
 
 def main() -> None:
@@ -44,10 +43,13 @@ def main() -> None:
         help="RRF k parameter controlling weight distribution (default=60)",
     )
     rrf_parser.add_argument(
-        "--limit", type=int, default=5, help="Number of results to return (default=5)"
+        "--enhance",
+        type=str,
+        choices=["spell"],
+        help="Query enhancement method",
     )
     rrf_parser.add_argument(
-        "--enhance", type=str, choices=["spell"], help="Uses an LLM to check for spelling (choice=spell)"
+        "--limit", type=int, default=5, help="Number of results to return (default=5)"
     )
 
     args = parser.parse_args()
@@ -77,12 +79,12 @@ def main() -> None:
                 print(f"   {res['document'][:100]}...")
                 print()
         case "rrf-search":
-            query = args.query
-            if args.enhance and args.enhance == "spell":
-                query = correct_spelling(query)
-                if args.query != query:
-                    print(f"Enhanced query ({args.enhance}): '{args.query}' -> '{query}'\n")
-            result = rrf_search_command(query, args.k, args.limit)
+            result = rrf_search_command(args.query, args.k, args.enhance, args.limit)
+
+            if result["enhanced_query"]:
+                print(
+                    f"Enhanced query ({result['enhance_method']}): '{result['original_query']}' -> '{result['enhanced_query']}'\n"
+                )
 
             print(
                 f"Reciprocal Rank Fusion Results for '{result['query']}' (k={result['k']}):"

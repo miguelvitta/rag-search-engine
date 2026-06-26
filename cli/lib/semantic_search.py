@@ -1,8 +1,10 @@
 import json
 import os
 import re
+from typing import Any, TypedDict
 
 import numpy as np
+from numpy.typing import NDArray
 from sentence_transformers import SentenceTransformer
 
 from .search_utils import (
@@ -13,28 +15,45 @@ from .search_utils import (
     DEFAULT_SEARCH_LIMIT,
     DEFAULT_SEMANTIC_CHUNK_SIZE,
     DOCUMENT_PREVIEW_LENGTH,
+    Movie,
     MOVIE_EMBEDDINGS_PATH,
+    SearchResult,
     format_search_result,
     load_movies,
 )
 
 
-class SemanticSearch:
-    def __init__(self, model_name="all-MiniLM-L6-v2"):
-        self.model = SentenceTransformer(model_name)
-        self.embeddings = None
-        self.documents = None
-        self.document_map = {}
+class SemanticSearchResult(TypedDict):
+    score: float
+    title: str
+    description: str
 
-    def generate_embedding(self, text):
+
+class ChunkMetadata(TypedDict):
+    movie_idx: int
+    chunk_idx: int
+    total_chunks: int
+
+
+EmbeddingArray = NDArray[Any]
+
+
+class SemanticSearch:
+    def __init__(self, model_name: str = "all-MiniLM-L6-v2") -> None:
+        self.model = SentenceTransformer(model_name)
+        self.embeddings: EmbeddingArray | None = None
+        self.documents: list[Movie] | None = None
+        self.document_map: dict[int, Movie] = {}
+
+    def generate_embedding(self, text: str) -> EmbeddingArray:
         if not text or not text.strip():
             raise ValueError("cannot generate embedding for empty text")
         return self.model.encode([text])[0]
 
-    def build_embeddings(self, documents):
+    def build_embeddings(self, documents: list[Movie]) -> EmbeddingArray:
         self.documents = documents
         self.document_map = {}
-        movie_strings = []
+        movie_strings: list[str] = []
         for doc in documents:
             self.document_map[doc["id"]] = doc
             movie_strings.append(f"{doc['title']}: {doc['description']}")
@@ -44,7 +63,7 @@ class SemanticSearch:
         np.save(MOVIE_EMBEDDINGS_PATH, self.embeddings)
         return self.embeddings
 
-    def load_or_create_embeddings(self, documents):
+    def load_or_create_embeddings(self, documents: list[Movie]) -> EmbeddingArray:
         self.documents = documents
         self.document_map = {}
         for doc in documents:
@@ -57,7 +76,9 @@ class SemanticSearch:
 
         return self.build_embeddings(documents)
 
-    def search(self, query, limit=DEFAULT_SEARCH_LIMIT):
+    def search(
+        self, query: str, limit: int = DEFAULT_SEARCH_LIMIT
+    ) -> list[SemanticSearchResult]:
         if self.embeddings is None or self.embeddings.size == 0:
             raise ValueError(
                 "No embeddings loaded. Call `load_or_create_embeddings` first."
@@ -70,14 +91,14 @@ class SemanticSearch:
 
         query_embedding = self.generate_embedding(query)
 
-        similarities = []
+        similarities: list[tuple[float, Movie]] = []
         for i, doc_embedding in enumerate(self.embeddings):
             similarity = cosine_similarity(query_embedding, doc_embedding)
             similarities.append((similarity, self.documents[i]))
 
         similarities.sort(key=lambda x: x[0], reverse=True)
 
-        results = []
+        results: list[SemanticSearchResult] = []
         for score, doc in similarities[:limit]:
             results.append(
                 {
@@ -90,7 +111,7 @@ class SemanticSearch:
         return results
 
 
-def cosine_similarity(vec1, vec2):
+def cosine_similarity(vec1: EmbeddingArray, vec2: EmbeddingArray) -> float:
     dot_product = np.dot(vec1, vec2)
     norm1 = np.linalg.norm(vec1)
     norm2 = np.linalg.norm(vec2)
@@ -101,13 +122,13 @@ def cosine_similarity(vec1, vec2):
     return dot_product / (norm1 * norm2)
 
 
-def verify_model():
+def verify_model() -> None:
     search_instance = SemanticSearch()
     print(f"Model loaded: {search_instance.model}")
     print(f"Max sequence length: {search_instance.model.max_seq_length}")
 
 
-def embed_text(text):
+def embed_text(text: str) -> None:
     search_instance = SemanticSearch()
     embedding = search_instance.generate_embedding(text)
     print(f"Text: {text}")
@@ -115,7 +136,7 @@ def embed_text(text):
     print(f"Dimensions: {embedding.shape[0]}")
 
 
-def verify_embeddings():
+def verify_embeddings() -> None:
     search_instance = SemanticSearch()
     documents = load_movies()
     embeddings = search_instance.load_or_create_embeddings(documents)
@@ -125,7 +146,7 @@ def verify_embeddings():
     )
 
 
-def embed_query_text(query):
+def embed_query_text(query: str) -> None:
     search_instance = SemanticSearch()
     embedding = search_instance.generate_embedding(query)
     print(f"Query: {query}")
@@ -133,7 +154,7 @@ def embed_query_text(query):
     print(f"Shape: {embedding.shape}")
 
 
-def semantic_search(query, limit=DEFAULT_SEARCH_LIMIT):
+def semantic_search(query: str, limit: int = DEFAULT_SEARCH_LIMIT) -> None:
     search_instance = SemanticSearch()
     documents = load_movies()
     search_instance.load_or_create_embeddings(documents)
@@ -188,6 +209,7 @@ def semantic_chunk(
     overlap: int = DEFAULT_CHUNK_OVERLAP,
 ) -> list[str]:
     text = text.strip()
+
     if not text:
         return []
 
@@ -196,7 +218,7 @@ def semantic_chunk(
     if len(sentences) == 1 and not text.endswith((".", "!", "?")):
         sentences = [text]
 
-    chunks = []
+    chunks: list[str] = []
     i = 0
     n_sentences = len(sentences)
 
@@ -234,18 +256,18 @@ def semantic_chunk_text(
 class ChunkedSemanticSearch(SemanticSearch):
     def __init__(self, model_name: str = "all-MiniLM-L6-v2") -> None:
         super().__init__(model_name)
-        self.chunk_embeddings = None
-        self.chunk_metadata = None
+        self.chunk_embeddings: EmbeddingArray | None = None
+        self.chunk_metadata: list[ChunkMetadata] | None = None
 
-    def build_chunk_embeddings(self, documents: list[dict]) -> np.ndarray:
+    def build_chunk_embeddings(self, documents: list[Movie]) -> EmbeddingArray:
         self.documents = documents
 
         self.document_map = {}
         for doc in documents:
             self.document_map[doc["id"]] = doc
 
-        all_chunks = []
-        chunk_metadata = []
+        all_chunks: list[str] = []
+        chunk_metadata: list[ChunkMetadata] = []
 
         for idx, doc in enumerate(documents):
             text = doc.get("description", "")
@@ -276,7 +298,7 @@ class ChunkedSemanticSearch(SemanticSearch):
 
         return self.chunk_embeddings
 
-    def load_or_create_chunk_embeddings(self, documents: list[dict]) -> np.ndarray:
+    def load_or_create_chunk_embeddings(self, documents: list[Movie]) -> EmbeddingArray:
         self.documents = documents
         self.document_map = {}
         for doc in documents:
@@ -293,7 +315,7 @@ class ChunkedSemanticSearch(SemanticSearch):
 
         return self.build_chunk_embeddings(documents)
 
-    def search_chunks(self, query: str, limit: int = 10) -> list[dict]:
+    def search_chunks(self, query: str, limit: int = 10) -> list[SearchResult]:
         if self.chunk_embeddings is None or self.chunk_metadata is None:
             raise ValueError(
                 "No chunk embeddings loaded. Call load_or_create_chunk_embeddings first."
@@ -301,7 +323,7 @@ class ChunkedSemanticSearch(SemanticSearch):
 
         query_embedding = self.generate_embedding(query)
 
-        chunk_scores = []
+        chunk_scores: list[dict[str, float | int]] = []
         for i, chunk_embedding in enumerate(self.chunk_embeddings):
             similarity = cosine_similarity(query_embedding, chunk_embedding)
             chunk_scores.append(
@@ -312,7 +334,7 @@ class ChunkedSemanticSearch(SemanticSearch):
                 }
             )
 
-        movie_scores = {}
+        movie_scores: dict[int, float] = {}
         for chunk_score in chunk_scores:
             movie_idx = chunk_score["movie_idx"]
             if (
@@ -323,7 +345,8 @@ class ChunkedSemanticSearch(SemanticSearch):
 
         sorted_movies = sorted(movie_scores.items(), key=lambda x: x[1], reverse=True)
 
-        results = []
+        assert self.documents is not None
+        results: list[SearchResult] = []
         for movie_idx, score in sorted_movies[:limit]:
             if movie_idx is None:
                 continue
@@ -340,13 +363,15 @@ class ChunkedSemanticSearch(SemanticSearch):
         return results
 
 
-def embed_chunks_command() -> np.ndarray:
+def embed_chunks_command() -> EmbeddingArray:
     movies = load_movies()
     searcher = ChunkedSemanticSearch()
     return searcher.load_or_create_chunk_embeddings(movies)
 
 
-def search_chunked_command(query: str, limit: int = DEFAULT_SEARCH_LIMIT) -> dict:
+def search_chunked_command(
+    query: str, limit: int = DEFAULT_SEARCH_LIMIT
+) -> dict[str, str | list[SearchResult]]:
     movies = load_movies()
     searcher = ChunkedSemanticSearch()
     searcher.load_or_create_chunk_embeddings(movies)

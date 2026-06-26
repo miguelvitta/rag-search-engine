@@ -1,10 +1,11 @@
 import os
+from typing import Optional
 
 from dotenv import load_dotenv
 from google import genai
 
 load_dotenv()
-api_key = os.environ.get("GEMINI_API_KEY")
+api_key = os.getenv("GEMINI_API_KEY")
 if not api_key:
     raise RuntimeError("GEMINI_API_KEY environment variable not set")
 
@@ -12,7 +13,7 @@ client = genai.Client(api_key=api_key)
 model = "gemma-4-31b-it"
 
 
-def correct_spelling(query: str) -> str:
+def spell_correct(query: str) -> str:
     prompt = f"""Fix any spelling errors in the user-provided movie search query below.
     Correct only clear, high-confidence typos. Do not rewrite, add, remove, or reorder words.
     Preserve punctuation and capitalization unless a change is required for a typo fix.
@@ -22,8 +23,13 @@ def correct_spelling(query: str) -> str:
     """
 
     response = client.models.generate_content(model=model, contents=prompt)
-    if response.text is None:
-        return query
-    
-    return response.text.strip().strip('"')
+    corrected = (response.text or "").strip().strip('"')
+    return corrected if corrected else query
 
+
+def enhance_query(query: str, method: Optional[str] = None) -> str:
+    match method:
+        case "spell":
+            return spell_correct(query)
+        case _:
+            return query
