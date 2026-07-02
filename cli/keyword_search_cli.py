@@ -1,125 +1,104 @@
 import argparse
 
-from lib.hybrid_search import (
-    normalize_scores,
-    rrf_search_command,
-    weighted_search_command,
+from lib.keyword_search import (
+    bm25_idf_command,
+    bm25_tf_command,
+    bm25search_command,
+    build_command,
+    idf_command,
+    search_command,
+    tf_command,
+    tfidf_command,
 )
+from lib.search_utils import BM25_B, BM25_K1
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Hybrid Search CLI")
+    parser = argparse.ArgumentParser(description="Keyword Search CLI")
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
 
-    normalize_parser = subparsers.add_parser(
-        "normalize", help="Normalize a list of scores"
+    subparsers.add_parser("build", help="Build the inverted index")
+
+    search_parser = subparsers.add_parser("search", help="Search movies using BM25")
+    search_parser.add_argument("query", type=str, help="Search query")
+
+    tf_parser = subparsers.add_parser(
+        "tf", help="Get term frequency for a given document ID and term"
     )
-    normalize_parser.add_argument(
-        "scores", nargs="+", type=float, help="List of scores to normalize"
+    tf_parser.add_argument("doc_id", type=int, help="Document ID")
+    tf_parser.add_argument("term", type=str, help="Term to get frequency for")
+
+    idf_parser = subparsers.add_parser(
+        "idf", help="Get inverse document frequency for a given term"
+    )
+    idf_parser.add_argument("term", type=str, help="Term to get IDF for")
+
+    tf_idf_parser = subparsers.add_parser(
+        "tfidf", help="Get TF-IDF score for a given document ID and term"
+    )
+    tf_idf_parser.add_argument("doc_id", type=int, help="Document ID")
+    tf_idf_parser.add_argument("term", type=str, help="Term to get TF-IDF score for")
+
+    bm25_idf_parser = subparsers.add_parser(
+        "bm25idf", help="Get BM25 IDF score for a given term"
+    )
+    bm25_idf_parser.add_argument(
+        "term", type=str, help="Term to get BM25 IDF score for"
     )
 
-    weighted_parser = subparsers.add_parser(
-        "weighted-search", help="Perform weighted hybrid search"
+    bm25_tf_parser = subparsers.add_parser(
+        "bm25tf", help="Get BM25 TF score for a given document ID and term"
     )
-    weighted_parser.add_argument("query", type=str, help="Search query")
-    weighted_parser.add_argument(
-        "--alpha",
-        type=float,
-        default=0.5,
-        help="Weight for BM25 vs semantic (0=all semantic, 1=all BM25, default=0.5)",
+    bm25_tf_parser.add_argument("doc_id", type=int, help="Document ID")
+    bm25_tf_parser.add_argument("term", type=str, help="Term to get BM25 TF score for")
+    bm25_tf_parser.add_argument(
+        "k1", type=float, nargs="?", default=BM25_K1, help="Tunable BM25 K1 parameter"
     )
-    weighted_parser.add_argument(
-        "--limit", type=int, default=5, help="Number of results to return (default=5)"
+    bm25_tf_parser.add_argument(
+        "b", type=float, nargs="?", default=BM25_B, help="Tunable BM25 b parameter"
     )
 
-    rrf_parser = subparsers.add_parser(
-        "rrf-search", help="Perform Reciprocal Rank Fusion search"
+    bm25search_parser = subparsers.add_parser(
+        "bm25search", help="Search movies using full BM25 scoring"
     )
-    rrf_parser.add_argument("query", type=str, help="Search query")
-    rrf_parser.add_argument(
-        "-k",
-        type=int,
-        default=60,
-        help="RRF k parameter controlling weight distribution (default=60)",
-    )
-    rrf_parser.add_argument(
-        "--enhance",
-        type=str,
-        choices=["spell", "expand", "rewrite"],
-        help="Query enhancement method",
-    )
-    rrf_parser.add_argument(
-        "--rerank-method",
-        type=str,
-        choices=["individual", "batch"],
-        help="Re-ranking method",
-    )
-    rrf_parser.add_argument(
-        "--limit", type=int, default=5, help="Number of results to return (default=5)"
-    )
+    bm25search_parser.add_argument("query", type=str, help="Search query")
 
     args = parser.parse_args()
 
     match args.command:
-        case "normalize":
-            normalized = normalize_scores(args.scores)
-            for score in normalized:
-                print(f"* {score:.4f}")
-        case "weighted-search":
-            result = weighted_search_command(args.query, args.alpha, args.limit)
-
+        case "build":
+            print("Building inverted index...")
+            build_command()
+            print("Inverted index built successfully.")
+        case "search":
+            print("Searching for:", args.query)
+            results = search_command(args.query)
+            for i, res in enumerate(results, 1):
+                print(f"{i}. ({res['id']}) {res['title']}")
+        case "tf":
+            tf = tf_command(args.doc_id, args.term)
+            print(f"Term frequency of '{args.term}' in document '{args.doc_id}': {tf}")
+        case "idf":
+            idf = idf_command(args.term)
+            print(f"Inverse document frequency of '{args.term}': {idf:.2f}")
+        case "tfidf":
+            tf_idf = tfidf_command(args.doc_id, args.term)
             print(
-                f"Weighted Hybrid Search Results for '{result['query']}' (alpha={result['alpha']}):"
+                f"TF-IDF score of '{args.term}' in document '{args.doc_id}': {tf_idf:.2f}"
             )
+        case "bm25idf":
+            bm25idf = bm25_idf_command(args.term)
+            print(f"BM25 IDF score of '{args.term}': {bm25idf:.2f}")
+        case "bm25tf":
+            bm25tf = bm25_tf_command(args.doc_id, args.term, args.k1, args.b)
             print(
-                f"  Alpha {result['alpha']}: {int(result['alpha'] * 100)}% Keyword, {int((1 - result['alpha']) * 100)}% Semantic"
+                f"BM25 TF score of '{args.term}' in document '{args.doc_id}': {bm25tf:.2f}"
             )
-            for i, res in enumerate(result["results"], 1):
-                print(f"{i}. {res['title']}")
-                print(f"   Hybrid Score: {res.get('score', 0):.3f}")
-                metadata = res.get("metadata", {})
-                if "bm25_score" in metadata and "semantic_score" in metadata:
-                    print(
-                        f"   BM25: {metadata['bm25_score']:.3f}, Semantic: {metadata['semantic_score']:.3f}"
-                    )
-                print(f"   {res['document'][:100]}...")
-                print()
-        case "rrf-search":
-            result = rrf_search_command(
-                args.query, args.k, args.enhance, args.rerank_method, args.limit
-            )
-
-            if result["enhanced_query"]:
-                print(
-                    f"Enhanced query ({result['enhance_method']}): '{result['original_query']}' -> '{result['enhanced_query']}'\n"
-                )
-
-            if result["reranked"]:
-                print(
-                    f"Re-ranking top {len(result['results'])} results using {result['rerank_method']} method...\n"
-                )
-
-            print(
-                f"Reciprocal Rank Fusion Results for '{result['query']}' (k={result['k']}):"
-            )
-
-            for i, res in enumerate(result["results"], 1):
-                print(f"{i}. {res['title']}")
-                if "individual_score" in res:
-                    print(f"   Re-rank Score: {res.get('individual_score', 0):.3f}/10")
-                if "batch_rank" in res:
-                    print(f"   Re-rank Rank: {res.get('batch_rank', 0)}")
-                print(f"   RRF Score: {res.get('score', 0):.3f}")
-                metadata = res.get("metadata", {})
-                ranks = []
-                if metadata.get("bm25_rank"):
-                    ranks.append(f"BM25 Rank: {metadata['bm25_rank']}")
-                if metadata.get("semantic_rank"):
-                    ranks.append(f"Semantic Rank: {metadata['semantic_rank']}")
-                if ranks:
-                    print(f"   {', '.join(ranks)}")
-                print(f"   {res['document'][:100]}...")
-                print()
+        case "bm25search":
+            print("Searching for:", args.query)
+            results = bm25search_command(args.query)
+            for i, res in enumerate(results, 1):
+                print(f"{i}. ({res['id']}) {res['title']} - Score: {res['score']:.2f}")
         case _:
             parser.print_help()
 
