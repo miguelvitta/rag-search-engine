@@ -3,14 +3,14 @@ from typing import Literal, TypedDict
 
 from .keyword_search import InvertedIndex
 from .query_enhancement import enhance_query
-from .reranking import rerank
+from .reranking import RerankedSearchResult, rerank
 from .search_utils import (
     DEFAULT_ALPHA,
     DEFAULT_SEARCH_LIMIT,
-    Movie,
     RRF_K,
-    SearchResult,
     SEARCH_MULTIPLIER,
+    Movie,
+    SearchResult,
     format_search_result,
     load_movies,
 )
@@ -30,6 +30,24 @@ class RRFScoreData(TypedDict):
     rrf_score: float
     bm25_rank: int | None
     semantic_rank: int | None
+
+
+class WeightedSearchCommandResult(TypedDict):
+    original_query: str
+    query: str
+    alpha: float
+    results: list[SearchResult]
+
+
+class RRFSearchCommandResult(TypedDict):
+    original_query: str
+    enhanced_query: str | None
+    enhance_method: Literal["spell", "expand", "rewrite"] | None
+    query: str
+    k: int
+    rerank_method: Literal["individual", "batch", "cross_encoder"] | None
+    reranked: bool
+    results: list[SearchResult] | list[RerankedSearchResult]
 
 
 class HybridSearch:
@@ -82,16 +100,15 @@ def normalize_scores(scores: list[float]) -> list[float]:
     return normalized_scores
 
 
-def normalize_search_results(results: list[SearchResult]) -> list[SearchResult]:
+def normalize_search_results(
+    results: list[SearchResult],
+) -> list[tuple[SearchResult, float]]:
     scores: list[float] = []
     for result in results:
         scores.append(result["score"])
 
     normalized: list[float] = normalize_scores(scores)
-    for i, result in enumerate(results):
-        result["normalized_score"] = normalized[i]
-
-    return results
+    return list(zip(results, normalized))
 
 
 def hybrid_score(
@@ -110,7 +127,7 @@ def combine_search_results(
 
     combined_scores: dict[int, CombinedScoreData] = {}
 
-    for result in bm25_normalized:
+    for result, normalized_score in bm25_normalized:
         doc_id = result["id"]
         if doc_id not in combined_scores:
             combined_scores[doc_id] = {
@@ -119,10 +136,10 @@ def combine_search_results(
                 "bm25_score": 0.0,
                 "semantic_score": 0.0,
             }
-        if result["normalized_score"] > combined_scores[doc_id]["bm25_score"]:
-            combined_scores[doc_id]["bm25_score"] = result["normalized_score"]
+        if normalized_score > combined_scores[doc_id]["bm25_score"]:
+            combined_scores[doc_id]["bm25_score"] = normalized_score
 
-    for result in semantic_normalized:
+    for result, normalized_score in semantic_normalized:
         doc_id = result["id"]
         if doc_id not in combined_scores:
             combined_scores[doc_id] = {
@@ -131,8 +148,8 @@ def combine_search_results(
                 "bm25_score": 0.0,
                 "semantic_score": 0.0,
             }
-        if result["normalized_score"] > combined_scores[doc_id]["semantic_score"]:
-            combined_scores[doc_id]["semantic_score"] = result["normalized_score"]
+        if normalized_score > combined_scores[doc_id]["semantic_score"]:
+            combined_scores[doc_id]["semantic_score"] = normalized_score
 
     hybrid_results: list[SearchResult] = []
     for doc_id, data in combined_scores.items():
@@ -211,7 +228,7 @@ def reciprocal_rank_fusion(
 
 def weighted_search_command(
     query: str, alpha: float = DEFAULT_ALPHA, limit: int = DEFAULT_SEARCH_LIMIT
-) -> dict[str, object]:
+) -> WeightedSearchCommandResult:
     movies = load_movies()
     searcher = HybridSearch(movies)
 
@@ -234,7 +251,7 @@ def rrf_search_command(
     enhance: Literal["spell", "expand", "rewrite"] | None = None,
     rerank_method: Literal["individual", "batch", "cross_encoder"] | None = None,
     limit: int = DEFAULT_SEARCH_LIMIT,
-) -> dict[str, object]:
+) -> RRFSearchCommandResult:
     movies = load_movies()
     searcher = HybridSearch(movies)
 

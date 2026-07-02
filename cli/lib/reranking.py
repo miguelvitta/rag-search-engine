@@ -1,23 +1,32 @@
 import json
 import os
 from time import sleep
+from typing import Literal, NotRequired
 
 from dotenv import load_dotenv
-from google import genai
+from openai import OpenAI
+
+from .search_utils import SearchResult
+
+
+class RerankedSearchResult(SearchResult, total=False):
+    individual_score: NotRequired[int]
+    batch_rank: NotRequired[int]
+
 
 load_dotenv()
-api_key = os.getenv("GEMINI_API_KEY")
+api_key = os.getenv("OPENROUTER_API_KEY")
 if not api_key:
-    raise RuntimeError("GEMINI_API_KEY environment variable not set")
+    raise RuntimeError("OPENROUTER_API_KEY environment variable not set")
 
-client = genai.Client(api_key=api_key)
-model = "gemma-4-31b-it"
+client = OpenAI(base_url="https://openrouter.ai/api/v1", api_key=api_key)
+model = "openrouter/free"
 
 
 def llm_rerank_individual(
-    query: str, documents: list[dict], limit: int = 5
-) -> list[dict]:
-    scored_docs = []
+    query: str, documents: list[SearchResult], limit: int = 5
+) -> list[RerankedSearchResult]:
+    scored_docs: list[RerankedSearchResult] = []
 
     for doc in documents:
         prompt = f"""Rate how well this movie matches the search query.
@@ -35,8 +44,10 @@ def llm_rerank_individual(
 
         Score:"""
 
-        response = client.models.generate_content(model=model, contents=prompt)
-        score_text = (response.text or "").strip()
+        response = client.chat.completions.create(
+            model=model, messages=[{"role": "user", "content": prompt}]
+        )
+        score_text = (response.choices[0].message.content or "").strip()
         score = int(score_text)
         scored_docs.append({**doc, "individual_score": score})
         sleep(3)
@@ -45,12 +56,14 @@ def llm_rerank_individual(
     return scored_docs[:limit]
 
 
-def llm_rerank_batch(query: str, documents: list[dict], limit: int = 5) -> list[dict]:
+def llm_rerank_batch(
+    query: str, documents: list[SearchResult], limit: int = 5
+) -> list[RerankedSearchResult]:
     if not documents:
         return []
 
-    doc_map = {}
-    doc_list = []
+    doc_map: dict[int, SearchResult] = {}
+    doc_list: list[str] = []
     for doc in documents:
         doc_id = doc["id"]
         doc_map[doc_id] = doc
@@ -78,12 +91,14 @@ def llm_rerank_batch(query: str, documents: list[dict], limit: int = 5) -> list[
 
     Ranking:"""
 
-    response = client.models.generate_content(model=model, contents=prompt)
-    ranking_text = (response.text or "").strip()
+    response = client.chat.completions.create(
+        model=model, messages=[{"role": "user", "content": prompt}]
+    )
+    ranking_text = (response.choices[0].message.content or "").strip()
 
     parsed_ids = json.loads(ranking_text)
 
-    reranked = []
+    reranked: list[RerankedSearchResult] = []
     for i, doc_id in enumerate(parsed_ids):
         if doc_id in doc_map:
             reranked.append({**doc_map[doc_id], "batch_rank": i + 1})
@@ -92,8 +107,11 @@ def llm_rerank_batch(query: str, documents: list[dict], limit: int = 5) -> list[
 
 
 def rerank(
-    query: str, documents: list[dict], method: str = "batch", limit: int = 5
-) -> list[dict]:
+    query: str,
+    documents: list[SearchResult],
+    method: Literal["individual", "batch", "cross_encoder"] = "batch",
+    limit: int = 5,
+) -> list[SearchResult] | list[RerankedSearchResult]:
     if method == "individual":
         return llm_rerank_individual(query, documents, limit)
     if method == "batch":

@@ -15,8 +15,8 @@ from .search_utils import (
     DEFAULT_SEARCH_LIMIT,
     DEFAULT_SEMANTIC_CHUNK_SIZE,
     DOCUMENT_PREVIEW_LENGTH,
-    Movie,
     MOVIE_EMBEDDINGS_PATH,
+    Movie,
     SearchResult,
     format_search_result,
     load_movies,
@@ -33,6 +33,12 @@ class ChunkMetadata(TypedDict):
     movie_idx: int
     chunk_idx: int
     total_chunks: int
+
+
+class ChunkScore(TypedDict):
+    movie_idx: int
+    chunk_idx: int
+    score: float
 
 
 EmbeddingArray = NDArray[Any]
@@ -323,7 +329,7 @@ class ChunkedSemanticSearch(SemanticSearch):
 
         query_embedding = self.generate_embedding(query)
 
-        chunk_scores: list[dict[str, float | int]] = []
+        chunk_scores: list[ChunkScore] = []
         for i, chunk_embedding in enumerate(self.chunk_embeddings):
             similarity = cosine_similarity(query_embedding, chunk_embedding)
             chunk_scores.append(

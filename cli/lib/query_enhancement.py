@@ -2,15 +2,15 @@ import os
 from typing import Literal
 
 from dotenv import load_dotenv
-from google import genai
+from openai import OpenAI
 
 load_dotenv()
-api_key = os.getenv("GEMINI_API_KEY")
+api_key = os.getenv("OPENROUTER_API_KEY")
 if not api_key:
-    raise RuntimeError("GEMINI_API_KEY environment variable not set")
+    raise RuntimeError("OPENROUTER_API_KEY environment variable not set")
 
-client = genai.Client(api_key=api_key)
-model = "gemma-4-31b-it"
+client = OpenAI(base_url="https://openrouter.ai/api/v1", api_key=api_key)
+model = "openrouter/free"
 
 
 def spell_correct(query: str) -> str:
@@ -22,8 +22,10 @@ def spell_correct(query: str) -> str:
     User query: "{query}"
     """
 
-    response = client.models.generate_content(model=model, contents=prompt)
-    corrected = (response.text or "").strip().strip('"')
+    response = client.chat.completions.create(
+        model=model, messages=[{"role": "user", "content": prompt}]
+    )
+    corrected = (response.choices[0].message.content or "").strip().strip('"')
     return corrected if corrected else query
 
 
@@ -48,8 +50,10 @@ def rewrite_query(query: str) -> str:
     User query: "{query}"
     """
 
-    response = client.models.generate_content(model=model, contents=prompt)
-    rewritten = (response.text or "").strip().strip('"')
+    response = client.chat.completions.create(
+        model=model, messages=[{"role": "user", "content": prompt}]
+    )
+    rewritten = (response.choices[0].message.content or "").strip().strip('"')
     return rewritten if rewritten else query
 
 
@@ -68,8 +72,10 @@ def expand_query(query: str) -> str:
     User query: "{query}"
     """
 
-    response = client.models.generate_content(model=model, contents=prompt)
-    expanded_terms = (response.text or "").strip().strip('"')
+    response = client.chat.completions.create(
+        model=model, messages=[{"role": "user", "content": prompt}]
+    )
+    expanded_terms = (response.choices[0].message.content or "").strip().strip('"')
     return f"{query} {expanded_terms}".strip()
 
 
