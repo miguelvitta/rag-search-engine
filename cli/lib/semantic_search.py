@@ -351,7 +351,10 @@ class ChunkedSemanticSearch(SemanticSearch):
 
         sorted_movies = sorted(movie_scores.items(), key=lambda x: x[1], reverse=True)
 
-        assert self.documents is not None
+        if self.documents is None:
+            raise ValueError(
+                "No documents loaded. Call load_or_create_chunk_embeddings first."
+            )
         results: list[SearchResult] = []
         for movie_idx, score in sorted_movies[:limit]:
             if movie_idx is None:

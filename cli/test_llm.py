@@ -17,7 +17,8 @@ def main() -> None:
     response = client.chat.completions.create(
         model=model, messages=[{"role": "user", "content": prompt}]
     )
-    assert response.usage is not None
+    if response.usage is None:
+        raise RuntimeError("API response has no usage data")
 
     print(f"Prompt tokens: {response.usage.prompt_tokens}")
     print(f"Response tokens: {response.usage.completion_tokens}")
